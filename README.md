@@ -148,8 +148,7 @@ arxiv-rag/
 │   ├── evaluation_protocol.md      #   Протокол оценки (для курсовой)
 │   └── api_reference.md            #   Документация API эндпоинтов
 │
-├── pyproject.toml                  # Зависимости (Poetry / uv)
-├── Makefile                        # Быстрые команды: make install, make ingest, make serve
+├── pyproject.toml                  # Зависимости + uv-скрипты (запуск пайплайнов)
 ├── docker-compose.yml              # Grobid + API + UI
 ├── .env.example                    # Шаблон переменных окружения
 ├── .pre-commit-config.yaml         # Линтеры: ruff, mypy
@@ -172,8 +171,106 @@ arxiv-rag/
 | **Evaluation** | `ragas` (faithfulness, relevance), custom metrics |
 | **API** | `FastAPI`, `uvicorn`, `pydantic` |
 | **UI** | `Streamlit` |
-| **Infrastructure** | `Docker`, `docker-compose`, `Make` |
+| **Infrastructure** | `Docker`, `docker-compose`, `uv` (package manager + script runner) |
 | **Quality** | `pytest`, `ruff`, `mypy`, `pre-commit` |
+
+---
+
+## uv-скрипты
+
+Все команды определены в `pyproject.toml` в секции `[tool.uv.scripts]`. Автоматически работают внутри виртуального окружения — не нужно активировать venv вручную.
+
+```toml
+# pyproject.toml (фрагмент)
+[tool.uv.scripts]
+ingest = "python scripts/ingest.py"
+index = "python scripts/build_index.py"
+serve = "uvicorn src.api.main:app --reload --port 8000"
+ui = "streamlit run src/ui/app.py --port 8501"
+eval = "python scripts/run_eval.py"
+demo = "python scripts/demo.py"
+test = "pytest tests/ -v"
+lint = "ruff check src/ && mypy src/"
+```
+
+| Команда | Описание |
+|---------|----------|
+| `uv sync` | Установка зависимостей |
+| `uv run ingest` | Загрузка и парсинг статей с arXiv |
+| `uv run index` | Чанкинг + построение FAISS и BM25 индексов |
+| `uv run serve` | Запуск FastAPI сервера |
+| `uv run ui` | Запуск Streamlit интерфейса |
+| `uv run eval` | Запуск оценки качества |
+| `uv run test` | Запуск тестов |
+| `uv run lint` | Проверка кода (ruff + mypy) |
+| `uv run demo` | Быстрый демо-запрос |
+
+---
+
+## API эндпоинты
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `POST` | `/search` | Поиск по запросу → ответ с цитатами |
+| `POST` | `/search/stream` | Потоковый поиск (SSE) |
+| `POST` | `/papers/ingest` | Запуск ингеста новых статей |
+| `GET` | `/papers` | Список проиндексированных статей |
+| `GET` | `/papers/{arxiv_id}` | Детали статьи |
+| `DELETE` | `/papers/{arxiv_id}` | Удаление статьи из индекса |
+| `POST` | `/eval/run` | Запуск оценки |
+| `GET` | `/eval/results` | Последние результаты оценки |
+| `GET` | `/health` | Healthcheck |
+
+Полная документация: `http://localhost:8000/docs` (Swagger UI)
+
+---
+
+## Оценка качества
+
+### Retrieval-метрики
+
+- **Recall@5, @10, @20** — доля релевантных чанков в top-K результатах
+- **MRR** (Mean Reciprocal Rank) — средняя обратная позиция первого релевантного результата
+- **NDCG@10** — нормализованная дисконтированная кумулятивная оценка
+
+### Generation-метрики (RAGAS)
+
+- **Faithfulness** — соответствует ли ответ извлечённому контексту (без галлюцинаций)
+- **Answer Relevance** — отвечает ли ответ на заданный вопрос
+- **Context Relevance** — релевантны ли найденные чанки вопросу
+- **Context Precision** — точность контекста
+
+### Ablation study
+
+Сравнение следующих конфигураций:
+
+| # | Retrieval | Rerank | HyDE |
+|---|-----------|--------|------|
+| 1 | Dense only | — | — |
+| 2 | Dense + Sparse (RRF) | — | — |
+| 3 | Dense + Sparse (RRF) | CrossEncoder | — |
+| 4 | Dense + Sparse (RRF) | CrossEncoder | HyDE |
+
+Запуск:
+
+```bash
+uv run eval --config configs/evaluation.yaml
+# Результаты: data/eval/results/ablation_results.csv
+# Визуализация: notebooks/03_eval_visualization.ipynb
+```
+
+---
+
+## Распределение задач в команде
+
+| Участник | Роль | Зоны ответственности |
+|----------|------|---------------------|
+| **A** | Data Engineer | `src/data_ingestion/`, `src/chunking/`, `scripts/ingest.py`, `tests/unit/test_chunking.py`, `notebooks/01_*.ipynb` |
+| **B** | Retrieval Engineer | `src/retrieval/`, `scripts/build_index.py`, `tests/unit/test_retrieval.py`, `tests/unit/test_query_transform.py`, `notebooks/02_*.ipynb` |
+| **C** | Gen + Eval Lead | `src/generation/`, `src/evaluation/`, `scripts/run_eval.py`, `scripts/generate_qa.py`, `scripts/demo.py`, `notebooks/03_*.ipynb` |
+| **D** | Full-Stack | `src/config/`, `src/utils/`, `src/api/`, `src/ui/`, `configs/`, `pyproject.toml` (uv-скрипты), `docker-compose.yml`, `docs/`, `tests/conftest.py`, `tests/integration/` |
+
+Подробный план по неделям и точки синхронизации — в `docs/architecture.md`.
 
 ---
 

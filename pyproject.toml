@@ -24,3 +24,15 @@ dependencies = [
     "transformers>=5.4.0",
     "uvicorn>=0.42.0",
 ]
+
+[tool.uv.scripts]
+ingest = "python scripts/ingest.py"
+index = "python scripts/build_index.py"
+serve = "uvicorn src.api.main:app --reload --port 8000"
+ui = "streamlit run src/ui/app.py --port 8501"
+eval = "python scripts/run_eval.py"
+generate-qa = "python scripts/generate_qa.py"
+demo = "python scripts/demo.py"
+test = "pytest tests/ -v"
+lint = "ruff check src/ && mypy src/"
+lint-fix = "ruff check src/ --fix"

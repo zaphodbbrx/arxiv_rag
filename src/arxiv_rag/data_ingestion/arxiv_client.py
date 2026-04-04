@@ -10,6 +10,7 @@ from typing import Optional
 
 import httpx
 import arxiv
+from tqdm import tqdm
 
 from src.arxiv_rag.data_ingestion.models import ArxivPaper, Section, SectionType, classify_section
 
@@ -64,7 +65,7 @@ class ArxivClient:
         max_results: int = 50,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
-        sort_by: str = "submittedDate",
+        sort_by: str = "relevance",
     ) -> list[ArxivPaper]:
         """Search arXiv by a free-text query.
 
@@ -88,7 +89,7 @@ class ArxivClient:
             "relevance": arxiv.SortCriterion.Relevance,
             "lastUpdatedDate": arxiv.SortCriterion.LastUpdatedDate,
         }
-        sort_criterion = sort_map.get(sort_by, arxiv.SortCriterion.SubmittedDate)
+        sort_criterion = sort_map.get(sort_by, arxiv.SortCriterion.Relevance)
 
         search = arxiv.Search(query=query, max_results=max_results, sort_by=sort_criterion)
         results = list(self._client.results(search))
@@ -163,52 +164,44 @@ class ArxivClient:
         output_dir: str | Path | None = None,
         overwrite: bool = False,
     ) -> list[Path]:
-        """Download PDF files for the given papers.
-
-        Args:
-            papers: List of ArxivPaper objects.
-            output_dir: Directory to save PDFs to. Defaults to the
-                raw_dir set in __init__ ("data/raw" if not specified).
-            overwrite: Whether to re-download existing PDFs.
-
-        Returns:
-            List of paths to downloaded PDF files.
-        """
         output_dir = Path(output_dir) if output_dir else self._raw_dir
         output_dir.mkdir(parents=True, exist_ok=True)
 
         downloaded: list[Path] = []
         failed: list[str] = []
 
-        for paper in papers:
-            pdf_filename = f"{paper.arxiv_id.replace('/', '_')}.pdf"
-            pdf_path = output_dir / pdf_filename
+        from tqdm.contrib.logging import logging_redirect_tqdm
+        with logging_redirect_tqdm():
+            for paper in tqdm(papers):
+                pdf_filename = f"{paper.arxiv_id.replace('/', '_')}.pdf"
+                pdf_path = output_dir / pdf_filename
 
-            if pdf_path.exists() and not overwrite:
-                logger.info("PDF already exists, skipping: %s", pdf_filename)
-                paper.pdf_path = str(pdf_path)
-                downloaded.append(pdf_path)
-                continue
-
-            if not paper.pdf_url:
-                logger.warning("No PDF URL for paper %s, skipping", paper.arxiv_id)
-                failed.append(paper.arxiv_id)
-                continue
-
-            try:
-                logger.info("Downloading PDF: %s -> %s", paper.arxiv_id, pdf_filename)
-                result = self._get_result_by_id(paper.arxiv_id)
-                if result:
-                    result.download_pdf(dirpath=str(output_dir), filename=pdf_filename)
+                if pdf_path.exists() and not overwrite:
+                    logger.info("PDF already exists, skipping: %s", pdf_filename)
                     paper.pdf_path = str(pdf_path)
                     downloaded.append(pdf_path)
-                else:
-                    failed.append(paper.arxiv_id)
-                time.sleep(self._rate_limit)
+                    continue
 
-            except Exception as e:
-                logger.error("Failed to download PDF for %s: %s", paper.arxiv_id, e)
-                failed.append(paper.arxiv_id)
+                if not paper.pdf_url:
+                    logger.warning("No PDF URL for paper %s, skipping", paper.arxiv_id)
+                    failed.append(paper.arxiv_id)
+                    continue
+
+                try:
+                    logger.info("Downloading PDF: %s -> %s", paper.arxiv_id, pdf_filename)
+                    response = httpx.get(
+                        paper.pdf_url,
+                        follow_redirects=True,
+                        timeout=60.0,
+                    )
+                    response.raise_for_status()
+                    pdf_path.write_bytes(response.content)
+                    paper.pdf_path = str(pdf_path)
+                    downloaded.append(pdf_path)
+
+                except Exception as e:
+                    logger.error("Failed to download PDF for %s: %s", paper.arxiv_id, e)
+                    failed.append(paper.arxiv_id)
 
         logger.info(
             "Downloaded %d PDFs, %d failed out of %d total",

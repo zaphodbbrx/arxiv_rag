@@ -120,6 +120,7 @@ class IngestionPipeline:
                     max_results=max_results,
                     date_from=date_from_str,
                     date_to=date_to_str,
+                    sort_by="relevance"
                 )
             )
 

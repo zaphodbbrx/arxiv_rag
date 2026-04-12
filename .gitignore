@@ -1,0 +1,8 @@
+__pycache__
+.env
+.venv
+*egg-info
+data/
+.history
+*pdf
+ollama

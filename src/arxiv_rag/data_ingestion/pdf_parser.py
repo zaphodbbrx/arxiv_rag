@@ -177,7 +177,6 @@ class GrobidParser(BasePDFParser):
                 section = Section(
                     heading=heading,
                     content=content,
-                    section_number=None,
                     section_type=section_type.name,
                 )
                 doc.sections.append(section)

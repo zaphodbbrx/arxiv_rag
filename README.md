@@ -94,6 +94,9 @@ git checkout mvp
 
 # Создать виртуальное окружение и установить зависимости
 uv sync
+
+# Запустить все необходимые сервисы
+docker compose -f infra/docker-compose.yml --env-file .env up
 ```
 
 ### 2. Скачивание и парсинг статей

@@ -1,0 +1,41 @@
+services:
+  grobid:
+    image: lfoppiano/grobid:0.8.1
+    container_name: grobid
+    ports:
+      - "8070:8070"
+
+  neo4j:
+    image: neo4j:4.2.3
+    restart: always
+    container_name: neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - ./neo4j/data:/data
+      - ./neo4j/logs:/logs
+      - ./neo4j/import:/var/lib/neo4j/import
+      - ./neo4j/plugins:/plugins
+    environment:
+      - NEO4J_AUTH=none
+
+  ollama:
+    image: ollama/ollama:0.6.5
+    container_name: ollama
+    volumes:
+      - ./ollama:/root/.ollama
+    entrypoint: []
+    command: >
+      sh -c "ollama serve &
+        sleep 5 &&
+        ollama pull qwen2.5:7b &&
+        ollama pull qwen2.5:14b &&
+      
+        wait
+      "
+    ports:
+      - 11434:11434
+    environment:
+      OLLAMA_KEEP_ALIVE: -1
+    runtime: nvidia

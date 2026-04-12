@@ -28,10 +28,13 @@ import time
 from pathlib import Path
 
 # Project root
+# TODO(asya): remove and fix with arxiv_rag.* imports instead of src.arxiv_rag.* 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from src.arxiv_rag.rag.index_builder.llama_index import LlamaIndexBuilder
+from src.arxiv_rag.rag.index_builder.neo4j import Neo4jIndexBuilder
 from src.arxiv_rag.data_ingestion.models import ArxivPaper
-from src.arxiv_rag.rag.index_builder import build_index, load_index
+from src.arxiv_rag.rag.index_builder.base import BaseIndexBuilder
 from src.arxiv_rag.rag.query_engine import ArxivQueryEngine
 from src.arxiv_rag.utils.io_utils import load_jsonl
 
@@ -75,6 +78,7 @@ def main() -> None:
     parser.add_argument("--model", type=str, default="qwen2.5:14b", help="Ollama model (qwen2.5:7b, qwen2.5:14b)")
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--chunk-size", type=int, default=512)
+    parser.add_argument("--index", type=str, default="neo4j", help="Database backend: (neo4j, faiss)")
     parser.add_argument("--verbose", "-v", action="store_true")
 
     args = parser.parse_args()
@@ -90,7 +94,8 @@ def main() -> None:
 
     # ── Setup ────────────────────────────────────────────────────────
     print("\n" + "=" * 60)
-    print("  ArXiv RAG — LlamaIndex + Qwen (Ollama)")
+    database_name = "Neo4j + Qwen (vllm self-hosted)" if args.index == "neo4j" else "LlamaIndex + Qwen (Ollama)"
+    print(f"  ArXiv RAG — {database_name}")
     print("=" * 60)
 
     t0 = time.monotonic()
@@ -102,12 +107,14 @@ def main() -> None:
     # ── Step 2: Build or load index ──────────────────────────────────
     index_exists = (persist_dir / "docstore.json").exists()
 
+    builder: BaseIndexBuilder = Neo4jIndexBuilder() if args.index == "neo4j" else LlamaIndexBuilder()
+
     if args.rebuild or not index_exists:
         print(f"\n[2/3] Building index...")
         print(f"  Embedding: {args.embedding_model}")
         print(f"  Chunk size: {args.chunk_size}")
 
-        index = build_index(
+        index = builder.build_index(
             papers,
             persist_dir=persist_dir,
             embedding_model=args.embedding_model,
@@ -115,7 +122,7 @@ def main() -> None:
         )
     else:
         print(f"\n[2/3] Loading index from {persist_dir}...")
-        index = load_index(
+        index = builder.load_index(
             persist_dir=persist_dir,
             embedding_model=args.embedding_model,
         )
@@ -123,6 +130,7 @@ def main() -> None:
     # ── Step 3: Create query engine ─────────────────────────────────
     print(f"\n[3/3] Initializing query engine (model={args.model}, top_k={args.top_k})...")
     print(f"  Make sure Ollama is running: ollama serve")
+    # TODO(asya): add QueryEngineClass for graph database Query
     engine = ArxivQueryEngine(
         index,
         model=args.model,

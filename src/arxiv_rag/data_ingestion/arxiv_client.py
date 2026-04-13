@@ -92,7 +92,15 @@ class ArxivClient:
         sort_criterion = sort_map.get(sort_by, arxiv.SortCriterion.Relevance)
 
         search = arxiv.Search(query=query, max_results=max_results, sort_by=sort_criterion)
-        results = list(self._client.results(search))
+        success = False
+        while not success:
+            try:
+                results = list(self._client.results(search))
+                success = True
+            except Exception as e:
+                logger.warning(e)
+                success = False
+
         papers = self._results_to_papers(results)
 
         if date_from or date_to:
